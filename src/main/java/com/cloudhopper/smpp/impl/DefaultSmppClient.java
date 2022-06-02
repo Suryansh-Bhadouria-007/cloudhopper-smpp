@@ -298,7 +298,7 @@ public class DefaultSmppClient implements SmppClient {
         InetSocketAddress socketAddr = new InetSocketAddress(host, port);
 
 	// set the timeout
-	this.clientBootstrap.option(ChannelOption.CONNECT_TIMEOUT_MILLIS, (int)connectTimeoutMillis);
+	this.clientBootstrap.option(ChannelOption.CONNECT_TIMEOUT_MILLIS,   (int)connectTimeoutMillis);
 
         // attempt to connect to the remote system
         ChannelFuture connectFuture = this.clientBootstrap.connect(socketAddr);

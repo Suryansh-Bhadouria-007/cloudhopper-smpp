@@ -31,6 +31,7 @@ import com.cloudhopper.smpp.impl.DefaultSmppSessionHandler;
 import com.cloudhopper.smpp.pdu.SubmitSm;
 import com.cloudhopper.smpp.type.Address;
 import io.netty.channel.nio.NioEventLoopGroup;
+import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -49,19 +50,19 @@ public class PerformanceClientMain {
     // performance testing options (just for this sample)
     //
     // total number of sessions (conns) to create
-    static public final int SESSION_COUNT = 10;
+    static public final int SESSION_COUNT = 1;
     // size of window per session
-    static public final int WINDOW_SIZE = 50;
+    static public final int WINDOW_SIZE = 10000000;
     // total number of submit to send total across all sessions
-    static public final int SUBMIT_TO_SEND = 2000;
+    static public final int SUBMIT_TO_SEND = 10000000;
     // total number of submit sent
     static public final AtomicInteger SUBMIT_SENT = new AtomicInteger(0);
-    
-    static public void main(String[] args) throws Exception {
+    @Test
+    public void main() throws Exception {
+
         //
         // setup 3 things required for any session we plan on creating
         //
-
         // create and assign the NioEventLoopGroup instances to handle event processing,
         // such as accepting new connections, receiving data, writing data, and so on.
         NioEventLoopGroup group = new NioEventLoopGroup(1);
@@ -96,16 +97,17 @@ public class PerformanceClientMain {
         config.setWindowSize(WINDOW_SIZE);
         config.setName("Tester.Session.0");
         config.setType(SmppBindType.TRANSCEIVER);
-        config.setHost("127.0.0.1");
-        config.setPort(2776);
+        config.setHost("localhost");
+        config.setPort(8088);
         config.setConnectTimeout(10000);
-        config.setSystemId("1234567890");
+        config.setSystemId("smppclient2");
         config.setPassword("password");
         config.getLoggingOptions().setLogBytes(false);
         // to enable monitoring (request expiration)
         config.setRequestExpiryTimeout(30000);
         config.setWindowMonitorInterval(15000);
         config.setCountersEnabled(true);
+        config.setBindTimeout(20000);
 
         // various latches used to signal when things are ready
         CountDownLatch allSessionsBoundSignal = new CountDownLatch(SESSION_COUNT);
@@ -120,12 +122,12 @@ public class PerformanceClientMain {
         }
         
         // wait for all sessions to bind
-        logger.info("Waiting up to 7 seconds for all sessions to bind...");
+        System.out.println("Waiting up to 7 seconds for all sessions to bind...");
         if (!allSessionsBoundSignal.await(7000, TimeUnit.MILLISECONDS)) {
             throw new Exception("One or more sessions were unable to bind, cancelling test");
         }
-        
-        logger.info("Sending signal to start test..."); 
+
+        System.out.println("Sending signal to start test...");
         long startTimeMillis = System.currentTimeMillis();
         startSendingSignal.countDown();
         
@@ -140,35 +142,35 @@ public class PerformanceClientMain {
         for (int i = 0; i < SESSION_COUNT; i++) {
             if (tasks[i].getCause() != null) {
                 sessionFailures++;
-                logger.error("Task #" + i + " failed with exception: " + tasks[i].getCause());
+                System.out.println("Task #" + i + " failed with exception: " + tasks[i].getCause());
             } else {
                 actualSubmitSent += tasks[i].getSubmitRequestSent();
             }
         }
         
-        logger.info("Performance client finished:");
-        logger.info("       Sessions: " + SESSION_COUNT);
-        logger.info("    Window Size: " + WINDOW_SIZE);
-        logger.info("Sessions Failed: " + sessionFailures);
-        logger.info("           Time: " + (stopTimeMillis - startTimeMillis) + " ms");
-        logger.info("  Target Submit: " + SUBMIT_TO_SEND);
-        logger.info("  Actual Submit: " + actualSubmitSent);
+        System.out.println("Performance client finished:");
+        System.out.println("       Sessions: " + SESSION_COUNT);
+        System.out.println("    Window Size: " + WINDOW_SIZE);
+        System.out.println("Sessions Failed: " + sessionFailures);
+        System.out.println("           Time: " + (stopTimeMillis - startTimeMillis) + " ms");
+        System.out.println("  Target Submit: " + SUBMIT_TO_SEND);
+        System.out.println("  Actual Submit: " + actualSubmitSent);
         double throughput = (double)actualSubmitSent/((double)(stopTimeMillis - startTimeMillis)/(double)1000);
-        logger.info("     Throughput: " + DecimalUtil.toString(throughput, 3) + " per sec");
+        System.out.println("     Throughput: " + DecimalUtil.toString(throughput, 3) + " per sec");
         
         for (int i = 0; i < SESSION_COUNT; i++) {
             if (tasks[i].session != null && tasks[i].session.hasCounters()) {
-                logger.info(" Session " + i + ": submitSM {}", tasks[i].session.getCounters().getTxSubmitSM());
+                System.out.println(" Session " + i + ": submitSM "+ tasks[i].session.getCounters().getTxSubmitSM());
             }
         }
 
         // this is required to not causing server to hang from non-daemon threads
         // this also makes sure all open Channels are closed to I *think*
-        logger.info("Shutting down client bootstrap and executors...");
+        System.out.println("Shutting down client bootstrap and executors...");
         clientBootstrap.destroy();
         monitorExecutor.shutdownNow();
-        
-        logger.info("Done. Exiting");
+        System.out.println("Done. Exiting");
+
     }
     
     
@@ -236,7 +238,7 @@ public class PerformanceClientMain {
                 // all threads have sent all submit, we do need to wait for
                 // an acknowledgement for all "inflight" though (synchronize
                 // against the window)
-                logger.info("before waiting sendWindow.size: {}", session.getSendWindow().getSize());
+                System.out.println("before waiting sendWindow.size: {}"+ session.getSendWindow().getSize());
 
                 allSubmitResponseReceivedSignal.await();
                 

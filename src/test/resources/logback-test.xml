@@ -35,7 +35,7 @@
     </layout>
   </appender>
     
-  <logger name="com.cloudhopper" level="TRACE"/>
+  <logger name="com.cloudhopper" level="WARN"/>
   
   <root level="WARN">
     <appender-ref ref="CONSOLE"/>

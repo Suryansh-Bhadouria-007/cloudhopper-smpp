@@ -9,9 +9,9 @@ package com.cloudhopper.smpp.demo.perftest;
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -55,17 +55,20 @@ public class PerformanceClientMain2 {
     // performance testing options (just for this sample)
     //
     // total number of sessions (conns) to create
-    static public final int SESSION_COUNT = 60;
+    // 26 TR conns , 2 RX conns
+
+    static public final int TRANSMITTER_SESSION_COUNT = 26;
+    static public final int RECEIVER_SESSIONS_COUNT = 2;
+
     // size of window per session
     static public final int WINDOW_SIZE = 5;
 
-//        static public final ExitCondition EXIT_CONDITION = ExitCondition.totalSubmitSmCount(200000);
-    static public final ExitCondition EXIT_CONDITION = ExitCondition.duration(1, TimeUnit.MINUTES);
+    static public final ExitCondition EXIT_CONDITION = ExitCondition.totalSubmitSmCount(10000);
+    //    static public final ExitCondition EXIT_CONDITION = ExitCondition.duration(1, TimeUnit.MINUTES);
 
     static public final int SUBMIT_DELAY = 1;
     static public final boolean DELIVERY_REPORTS = true;
     private static final int TIMEOUT_MILLIS = 10000;
-
 
     static public void main(String[] args) throws Exception {
         //
@@ -107,11 +110,17 @@ public class PerformanceClientMain2 {
 
         // create all session runners and executors to run them
         ThreadPoolExecutor taskExecutor = (ThreadPoolExecutor) Executors.newCachedThreadPool();
-        ClientSessionTask[] tasks = new ClientSessionTask[SESSION_COUNT];
+        ClientSessionTask[] tasks = new ClientSessionTask[TRANSMITTER_SESSION_COUNT + RECEIVER_SESSIONS_COUNT];
 
-        for (int i = 0; i < SESSION_COUNT; i++) {
-            SmppBindType smppBindType = i % 2 == 0 ? SmppBindType.TRANSMITTER : SmppBindType.RECEIVER;
-//            SmppBindType smppBindType = SmppBindType.TRANSCEIVER;
+        for (int i = 0; i < TRANSMITTER_SESSION_COUNT; i++) {
+            //            SmppBindType smppBindType = i % 2 == 0 ? SmppBindType.TRANSMITTER : SmppBindType.RECEIVER;
+            SmppBindType smppBindType = SmppBindType.TRANSMITTER;
+            tasks[i] = new ClientSessionTask(testState, clientBootstrap, getSmppSessionConfiguration(smppBindType));
+            taskExecutor.submit(tasks[i]);
+        }
+        for (int i = 0; i < RECEIVER_SESSIONS_COUNT; i++) {
+            //            SmppBindType smppBindType = i % 2 == 0 ? SmppBindType.TRANSMITTER : SmppBindType.RECEIVER;
+            SmppBindType smppBindType = SmppBindType.RECEIVER;
             tasks[i] = new ClientSessionTask(testState, clientBootstrap, getSmppSessionConfiguration(smppBindType));
             taskExecutor.submit(tasks[i]);
         }
@@ -119,7 +128,7 @@ public class PerformanceClientMain2 {
 
         try {
             // wait for all sessions to bind
-            logger.info("Waiting up to 7 seconds for all sessions to bind...");
+            System.out.println("Waiting up to 7 seconds for all sessions to bind...");
             if (testState.allSessionsBoundSignal.await(7000, TimeUnit.MILLISECONDS)) {
 
                 testState.start();
@@ -135,12 +144,12 @@ public class PerformanceClientMain2 {
 
                 printStats(tasks, testState);
 
-                logger.info("Done. Exiting");
+                System.out.println("Done. Exiting");
             } else {
-                logger.info("Test failed. Exiting.");
+                System.out.println("Test failed. Exiting.");
             }
         } finally {
-            logger.info("Shutting down client bootstrap and executors...");
+            System.out.println("Shutting down client bootstrap and executors...");
             supportExecutor.shutdownNow();
             taskExecutor.shutdownNow();
             clientBootstrap.destroy();
@@ -155,9 +164,9 @@ public class PerformanceClientMain2 {
         config.setName("Tester.Session.0");
         config.setType(smppBindType);
         config.setHost("127.0.0.1");
-        config.setPort(5000);
-        config.setConnectTimeout(5000);
-        config.setSystemId("1234567890");
+        config.setPort(8088);
+        config.setConnectTimeout(50000);
+        config.setSystemId("smppclient1");
         config.setPassword("password");
         config.getLoggingOptions().setLogBytes(false);
         // to enable monitoring (request expiration)
@@ -170,7 +179,7 @@ public class PerformanceClientMain2 {
     private static void printStats(ClientSessionTask[] tasks, TestState testState) {
         long stopTimeMillisMt = -1;
         for (ClientSessionTask task : tasks) {
-            if (task.sendingMtDoneTimestamp != null) {
+            if (task!=null && task.sendingMtDoneTimestamp != null) {
                 stopTimeMillisMt = max(task.sendingMtDoneTimestamp, stopTimeMillisMt);
             }
         }
@@ -179,10 +188,10 @@ public class PerformanceClientMain2 {
         long actualDrReceived = 0;
         long actualSubmitResponseOk = 0;
         long actualSubmitResponseError = 0;
-        for (int i = 0; i < SESSION_COUNT; i++) {
+        for (int i = 0; i < TRANSMITTER_SESSION_COUNT + RECEIVER_SESSIONS_COUNT; i++) {
             if (tasks[i].getCause() != null) {
                 sessionFailures++;
-                logger.error("Task #" + i + " failed with exception: " + tasks[i].getCause());
+                System.out.println("Task #" + i + " failed with exception: " + tasks[i].getCause());
             } else {
                 ConcurrentCommandCounter txSubmitSM = tasks[i].counters.getTxSubmitSM();
                 actualSubmitSent += txSubmitSM.getRequest();
@@ -192,32 +201,31 @@ public class PerformanceClientMain2 {
             }
         }
 
-        logger.info("Performance client finished:");
-        logger.info("       Sessions: " + SESSION_COUNT);
-        logger.info("    Window Size: " + WINDOW_SIZE);
-        logger.info("Sessions Failed: " + sessionFailures);
-        logger.info("           Time: " + (stopTimeMillisMt - testState.startTime) / 1000 + " s");
-        logger.info("  Actual Submit: " + actualSubmitSent);
-        logger.info(" Submit Resp Ok: " + actualSubmitResponseOk);
-        logger.info("Submit Resp Err: " + actualSubmitResponseError);
-        logger.info("    DR Received: " + actualDrReceived);
+        System.out.println("Performance client finished:");
+        System.out.println("       Sessions: " + (TRANSMITTER_SESSION_COUNT + RECEIVER_SESSIONS_COUNT));
+        System.out.println("    Window Size: " + WINDOW_SIZE);
+        System.out.println("Sessions Failed: " + sessionFailures);
+        System.out.println("           Time: " + (stopTimeMillisMt - testState.startTime) / 1000 + " s");
+        System.out.println("  Actual Submit: " + actualSubmitSent);
+        System.out.println(" Submit Resp Ok: " + actualSubmitResponseOk);
+        System.out.println("Submit Resp Err: " + actualSubmitResponseError);
+        System.out.println("    DR Received: " + actualDrReceived);
         double throughputMt = (double) actualSubmitSent / ((double) (stopTimeMillisMt - testState.startTime) / (double) 1000);
-        logger.info("   Throughput MT: " + DecimalUtil.toString(throughputMt, 3) + " per sec");
+        System.out.println("   Throughput MT: " + DecimalUtil.toString(throughputMt, 3) + " per sec");
 
-        for (int i = 0; i < SESSION_COUNT; i++) {
+        for (int i = 0; i < TRANSMITTER_SESSION_COUNT + RECEIVER_SESSIONS_COUNT; i++) {
             ClientSessionTask task = tasks[i];
             if (task.counters != null && task.config.getType() != SmppBindType.RECEIVER) {
-                logger.info(" Session " + i + ": submitSM {}", task.session.getCounters().getTxSubmitSM());
+                System.out.println(" Session " + i + ": submitSM: "+ task.session.getCounters().getTxSubmitSM());
             }
         }
-        for (int i = 0; i < SESSION_COUNT; i++) {
+        for (int i = 0; i < TRANSMITTER_SESSION_COUNT + RECEIVER_SESSIONS_COUNT; i++) {
             ClientSessionTask task = tasks[i];
             if (task.counters != null && task.config.getType() != SmppBindType.TRANSMITTER) {
-                logger.info(" Session " + i + ": deliverSM {}", task.session.getCounters().getRxDeliverSM());
+                System.out.println(" Session " + i + ": deliverSM: "+ task.session.getCounters().getRxDeliverSM());
             }
         }
     }
-
 
     public static class ClientSessionTask implements Runnable {
 
@@ -329,7 +337,7 @@ public class PerformanceClientMain2 {
             public void fireChannelUnexpectedlyClosed() {
                 // this is an error we didn't really expect for perf testing
                 // its best to at least countDown the latch so we're not waiting forever
-                logger.error("Unexpected close occurred...");
+                System.out.println("Unexpected close occurred...");
                 this.allSubmitResponseReceivedSignal.countDown();
             }
 
@@ -393,7 +401,7 @@ public class PerformanceClientMain2 {
                             }
                         }
                         if (sendingDone && lastDrCount - drCount == 0) {
-                            logger.info("No more DRs are coming, stop receiving.");
+                            System.out.println("No more DRs are coming, stop receiving.");
                             testState.stopReceivingSignal.countDown();
                             return;
                         }
@@ -415,7 +423,7 @@ public class PerformanceClientMain2 {
 
     private static class TestState {
         // various latches used to signal when things are ready
-        ResultCountDownLatch allSessionsBoundSignal = new ResultCountDownLatch(SESSION_COUNT);
+        ResultCountDownLatch allSessionsBoundSignal = new ResultCountDownLatch(TRANSMITTER_SESSION_COUNT + RECEIVER_SESSIONS_COUNT);
         CountDownLatch startSendingSignal = new CountDownLatch(1);
         CountDownLatch stopReceivingSignal = new CountDownLatch(DELIVERY_REPORTS ? 1 : 0);
         AtomicLong submitSmSentCount = new AtomicLong(0);
@@ -423,7 +431,7 @@ public class PerformanceClientMain2 {
         volatile boolean stopTest;
 
         private void start() {
-            logger.info("Sending signal to start test...");
+            System.out.println("Sending signal to start test...");
             startTime = System.currentTimeMillis();
             startSendingSignal.countDown();
         }
@@ -464,8 +472,12 @@ public class PerformanceClientMain2 {
                     long error = totalSubmitResponseError - lastTotalSubmitResponseError;
                     long dr = totalDrReceived - lastTotalDrReceived;
                     log.info("sent {}, ok {}, error {}, dr {}", sent, ok, error, dr);
+                    System.out.println("sent: " + sent + ", ok: " + ok + ", error: " + error + ", dr: " + dr);
+
                     if (++j % 10 == 0) {
                         logTotal.info("sent {}, ok {}, error {}, dr {}", totalSubmitSent, totalSubmitResponseOk, totalSubmitResponseError, totalDrReceived);
+                        System.out.println("totalSubmitSent: " + totalSubmitSent + ", totalSubmitResponseOk: " + totalSubmitResponseOk + ", totalSubmitResponseError: " + totalSubmitResponseError + ", totalDrReceived: " + totalDrReceived);
+
                     }
                     lastTotalSubmitSent = totalSubmitSent;
                     lastTotalSubmitResponseOk = totalSubmitResponseOk;
@@ -492,7 +504,7 @@ public class PerformanceClientMain2 {
                 totalDrReceived = 0;
                 totalSubmitResponseOk = 0;
                 totalSubmitResponseError = 0;
-                for (int i = 0; i < SESSION_COUNT; i++) {
+                for (int i = 0; i < TRANSMITTER_SESSION_COUNT + RECEIVER_SESSIONS_COUNT; i++) {
                     SmppSessionCounters counters = tasks[i].counters;
                     if (counters != null) {
                         ConcurrentCommandCounter txSubmitSM = counters.getTxSubmitSM();
@@ -598,7 +610,7 @@ public class PerformanceClientMain2 {
             } catch (IOException e) {
                 log.warn("", e);
             } catch (InterruptedException e) {
-//                ok
+                //                ok
             }
         }
 
